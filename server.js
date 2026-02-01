@@ -1,9 +1,6 @@
-import chatRoutes from "./routes/chat.js";
-
 /**
  * SH BACKEND API — CLEAN FOUNDATION
  * API Keys • SQLite • AI Chat (Mock)
- * Built to be extended later (OpenAI, monetization, mobile apps)
  */
 
 const express = require("express");
@@ -12,22 +9,23 @@ const cors = require("cors");
 const crypto = require("crypto");
 const { Sequelize, DataTypes } = require("sequelize");
 
+// ROUTES
+const chatRoutes = require("./routes/chat");
+
 dotenv.config();
 
 const app = express();
 
-// ✅ THIS IS THE FIX
+// ===============================
+// ✅ MIDDLEWARE
+// ===============================
 app.use(cors());
 app.use(express.json());
-
-app.use("/api/chat", chatRoutes);
-
-
 
 // ===============================
 // ⚙️ CONFIG
 // ===============================
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 8080;
 const DAILY_LIMIT_FREE = 50;
 
 // ===============================
@@ -36,33 +34,18 @@ const DAILY_LIMIT_FREE = 50;
 const sequelize = new Sequelize({
   dialect: "sqlite",
   storage: "./database.sqlite",
-  logging: false
+  logging: false,
 });
 
 // ===============================
 // 👤 USER MODEL
 // ===============================
 const User = sequelize.define("User", {
-  name: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
-  email: {
-    type: DataTypes.STRING,
-    unique: true,
-    allowNull: false
-  },
-  apiKey: {
-    type: DataTypes.STRING,
-    unique: true
-  },
-  usageCount: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0
-  },
-  lastResetAt: {
-    type: DataTypes.DATE
-  }
+  name: { type: DataTypes.STRING, allowNull: false },
+  email: { type: DataTypes.STRING, unique: true, allowNull: false },
+  apiKey: { type: DataTypes.STRING, unique: true },
+  usageCount: { type: DataTypes.INTEGER, defaultValue: 0 },
+  lastResetAt: { type: DataTypes.DATE },
 });
 
 // ===============================
@@ -83,37 +66,26 @@ function resetUsageIfNewDay(user) {
 }
 
 // ===============================
-// 🛡️ API KEY AUTH MIDDLEWARE
+// 🛡️ API KEY AUTH
 // ===============================
 async function authenticateApiKey(req, res, next) {
   const apiKey = req.headers["x-api-key"];
-
   if (!apiKey) {
-    return res.status(401).json({
-      statusCode: 401,
-      message: "Missing API key"
-    });
+    return res.status(401).json({ message: "Missing API key" });
   }
 
   const user = await User.findOne({ where: { apiKey } });
-
   if (!user) {
-    return res.status(401).json({
-      statusCode: 401,
-      message: "Invalid API key"
-    });
+    return res.status(401).json({ message: "Invalid API key" });
   }
 
   resetUsageIfNewDay(user);
 
   if (user.usageCount >= DAILY_LIMIT_FREE) {
-    return res.status(429).json({
-      statusCode: 429,
-      message: "Daily usage limit reached"
-    });
+    return res.status(429).json({ message: "Daily limit reached" });
   }
 
-  user.usageCount += 1;
+  user.usageCount++;
   await user.save();
 
   req.user = user;
@@ -127,96 +99,69 @@ app.get("/api/status", (req, res) => {
   res.json({
     statusCode: 200,
     service: "sh-backend-api",
-    uptimeSeconds: process.uptime()
+    uptimeSeconds: process.uptime(),
   });
 });
 
 // ===============================
-// 📝 REGISTER USER (GET API KEY)
+// 📝 REGISTER
 // ===============================
 app.post("/api/register", async (req, res) => {
-  try {
-    const { name, email } = req.body;
-
-    if (!name || !email) {
-      return res.status(400).json({
-        statusCode: 400,
-        message: "Name and email are required"
-      });
-    }
-
-    if (await User.findOne({ where: { email } })) {
-      return res.status(409).json({
-        statusCode: 409,
-        message: "User already exists"
-      });
-    }
-
-    const apiKey = generateApiKey();
-
-    const user = await User.create({
-      name,
-      email,
-      apiKey,
-      lastResetAt: new Date()
-    });
-
-    res.status(201).json({
-      statusCode: 201,
-      message: "User registered",
-      apiKey: user.apiKey
-    });
-
-  } catch (err) {
-    res.status(500).json({
-      statusCode: 500,
-      error: err.message
-    });
+  const { name, email } = req.body;
+  if (!name || !email) {
+    return res.status(400).json({ message: "Name and email required" });
   }
+
+  if (await User.findOne({ where: { email } })) {
+    return res.status(409).json({ message: "User exists" });
+  }
+
+  const apiKey = generateApiKey();
+  const user = await User.create({
+    name,
+    email,
+    apiKey,
+    lastResetAt: new Date(),
+  });
+
+  res.status(201).json({ apiKey });
 });
 
 // ===============================
-// 🤖 AI CHAT (MOCK — WORKING)
+// 🤖 AI CHAT (PROTECTED)
 // ===============================
-app.post("/api/ai/chat", authenticateApiKey, async (req, res) => {
+app.post("/api/ai/chat", authenticateApiKey, (req, res) => {
   const { message } = req.body;
-
   if (!message) {
-    return res.status(400).json({
-      statusCode: 400,
-      message: "Message is required"
-    });
+    return res.status(400).json({ message: "Message required" });
   }
-
-  // Mock AI response (replace later with OpenAI / local model)
-  const reply = `Hi ${req.user.name} 👋 You said: "${message}"`;
 
   res.json({
-    statusCode: 200,
-    reply,
-    usage: {
-      usedToday: req.user.usageCount,
-      limit: DAILY_LIMIT_FREE
-    }
+    reply: `Hi ${req.user.name} 👋 You said: "${message}"`,
+    usedToday: req.user.usageCount,
+    limit: DAILY_LIMIT_FREE,
   });
 });
+
+// ===============================
+// 💬 CHAT ROUTES (UNPROTECTED)
+// ===============================
+app.use("/api/chat", chatRoutes);
 
 // ===============================
 // ❌ 404
 // ===============================
 app.use((req, res) => {
-  res.status(404).json({
-    statusCode: 404,
-    message: "Endpoint not found"
-  });
+  res.status(404).json({ message: "Endpoint not found" });
 });
 
 // ===============================
-// 🚀 START SERVER
+// 🚀 START
 // ===============================
 (async () => {
   await sequelize.sync();
   app.listen(PORT, () => {
-    console.log(`✅ SH Backend API running on http://localhost:${PORT}`);
+    console.log(`✅ Server running on port ${PORT}`);
   });
 })();
+
