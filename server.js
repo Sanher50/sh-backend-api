@@ -1,3 +1,5 @@
+import chatRoutes from "./routes/chat.js";
+
 /**
  * SH BACKEND API — CLEAN FOUNDATION
  * API Keys • SQLite • AI Chat (Mock)
@@ -17,6 +19,9 @@ const app = express();
 // ✅ THIS IS THE FIX
 app.use(cors());
 app.use(express.json());
+
+app.use("/api/chat", chatRoutes);
+
 
 
 // ===============================
