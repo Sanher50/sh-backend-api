@@ -12,6 +12,7 @@
 const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
+const OpenAI = require("openai");
 const crypto = require("crypto");
 const { Sequelize, DataTypes } = require("sequelize");
 
@@ -29,6 +30,10 @@ const app = express();
 // ✅ Middleware
 app.use(cors());
 app.use(express.json());
+
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+  });
 
 // ===============================
 // ⚙️ CONFIG
