@@ -1,19 +1,12 @@
 /**
- * SH BACKEND API — CLEAN FOUNDATION (OpenAI Connected)
- * API Keys • SQLite • AI Chat (OpenAI)
- *
- * Endpoints:
- *  GET  /                     -> "OK"
- *  GET  /health               -> { ok: true }
- *  GET  /api/status
- *  POST /api/register          { "name": "...", "email": "..." }
- *  POST /api/ai/chat           Header: x-api-key: <key>
- *                              Body: { "message": "Hello" } OR { "messages": [{role,content}, ...] }
+ * SH BACKEND API — FINAL STABLE VERSION
+ * Railway-ready • OpenAI SDK • SQLite • API Keys
  */
 
 const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
+const OpenAI = require("openai");
 const crypto = require("crypto");
 const { Sequelize, DataTypes } = require("sequelize");
 
@@ -21,22 +14,27 @@ dotenv.config();
 
 const app = express();
 
-// ===============================
-// ✅ MIDDLEWARE
-// ===============================
+/* ===============================
+   ✅ MIDDLEWARE
+================================ */
 app.use(cors());
 app.use(express.json());
 
-// ✅ Railway/Load balancer health routes
-app.get("/", (req, res) => res.send("OK"));
-app.get("/health", (req, res) => res.json({ ok: true }));
+/* ===============================
+   ✅ RAILWAY HEALTH ROUTES
+   (THIS FIXES "FAILED TO RESPOND")
+================================ */
+app.get("/", (req, res) => {
+  res.status(200).send("OK");
+});
 
-// ✅ Node 18+ / Railway has global fetch
-const fetchFn = global.fetch;
+app.get("/health", (req, res) => {
+  res.status(200).json({ ok: true });
+});
 
-// ===============================
-// ⚙️ CONFIG
-// ===============================
+/* ===============================
+   ⚙️ CONFIG
+================================ */
 const PORT = process.env.PORT || 4000;
 const DAILY_LIMIT_FREE = 50;
 
@@ -44,23 +42,28 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
 if (!OPENAI_API_KEY) {
-  console.warn(
-    "⚠️ OPENAI_API_KEY is missing. /api/ai/chat will fail until you set it in Railway Variables."
-  );
+  console.warn("⚠️ OPENAI_API_KEY is missing");
 }
 
-// ===============================
-// 🗄️ DATABASE (SQLite)
-// ===============================
+/* ===============================
+   🤖 OPENAI CLIENT (SDK — SAFE)
+================================ */
+const openai = new OpenAI({
+  apiKey: OPENAI_API_KEY,
+});
+
+/* ===============================
+   🗄️ DATABASE (SQLite)
+================================ */
 const sequelize = new Sequelize({
   dialect: "sqlite",
   storage: "./database.sqlite",
   logging: false,
 });
 
-// ===============================
-// 👤 USER MODEL
-// ===============================
+/* ===============================
+   👤 USER MODEL
+================================ */
 const User = sequelize.define("User", {
   name: { type: DataTypes.STRING, allowNull: false },
   email: { type: DataTypes.STRING, unique: true, allowNull: false },
@@ -69,9 +72,9 @@ const User = sequelize.define("User", {
   lastResetAt: { type: DataTypes.DATE },
 });
 
-// ===============================
-// 🔐 HELPERS
-// ===============================
+/* ===============================
+   🔐 HELPERS
+================================ */
 function generateApiKey() {
   return crypto.randomBytes(24).toString("hex");
 }
@@ -85,36 +88,25 @@ function resetUsageIfNewDay(user) {
   }
 }
 
-// ===============================
-// 🛡️ API KEY AUTH MIDDLEWARE
-// Header: x-api-key: <key>
-// ===============================
+/* ===============================
+   🛡️ API KEY AUTH
+================================ */
 async function authenticateApiKey(req, res, next) {
   const apiKey = req.headers["x-api-key"];
 
   if (!apiKey) {
-    return res.status(401).json({
-      statusCode: 401,
-      message: "Missing API key (send header: x-api-key)",
-    });
+    return res.status(401).json({ message: "Missing API key" });
   }
 
   const user = await User.findOne({ where: { apiKey } });
   if (!user) {
-    return res.status(401).json({
-      statusCode: 401,
-      message: "Invalid API key",
-    });
+    return res.status(401).json({ message: "Invalid API key" });
   }
 
   resetUsageIfNewDay(user);
 
   if (user.usageCount >= DAILY_LIMIT_FREE) {
-    return res.status(429).json({
-      statusCode: 429,
-      message: "Daily usage limit reached",
-      usage: { usedToday: user.usageCount, limit: DAILY_LIMIT_FREE },
-    });
+    return res.status(429).json({ message: "Daily limit reached" });
   }
 
   user.usageCount += 1;
@@ -124,76 +116,48 @@ async function authenticateApiKey(req, res, next) {
   next();
 }
 
-// ===============================
-// 🩺 STATUS
-// ===============================
+/* ===============================
+   🩺 STATUS
+================================ */
 app.get("/api/status", (req, res) => {
   res.json({
-    statusCode: 200,
-    service: "sh-backend-api",
-    uptimeSeconds: process.uptime(),
+    status: "ok",
+    uptime: process.uptime(),
   });
 });
 
-// ===============================
-// 📝 REGISTER USER (GET API KEY)
-// ===============================
+/* ===============================
+   📝 REGISTER USER
+================================ */
 app.post("/api/register", async (req, res) => {
-  try {
-    const { name, email } = req.body;
+  const { name, email } = req.body;
 
-    if (!name || !email) {
-      return res.status(400).json({
-        statusCode: 400,
-        message: "Name and email are required",
-      });
-    }
-
-    const existing = await User.findOne({ where: { email } });
-    if (existing) {
-      return res.status(409).json({
-        statusCode: 409,
-        message: "User exists",
-      });
-    }
-
-    const apiKey = generateApiKey();
-
-    const user = await User.create({
-      name,
-      email,
-      apiKey,
-      lastResetAt: new Date(),
-    });
-
-    res.status(201).json({
-      statusCode: 201,
-      message: "User registered",
-      apiKey: user.apiKey,
-    });
-  } catch (err) {
-    res.status(500).json({
-      statusCode: 500,
-      error: err.message,
-    });
+  if (!name || !email) {
+    return res.status(400).json({ message: "Name and email required" });
   }
+
+  const exists = await User.findOne({ where: { email } });
+  if (exists) {
+    return res.status(409).json({ message: "User already exists" });
+  }
+
+  const apiKey = generateApiKey();
+
+  const user = await User.create({
+    name,
+    email,
+    apiKey,
+    lastResetAt: new Date(),
+  });
+
+  res.status(201).json({ apiKey: user.apiKey });
 });
 
-// ===============================
-// 🤖 AI CHAT (OPENAI)
-// Endpoint: POST /api/ai/chat
-// Headers: x-api-key: <your_api_key_from_/api/register>
-// Body: { "message": "Hello" } OR { "messages": [{role,content}, ...] }
-// ===============================
+/* ===============================
+   🤖 AI CHAT (OPENAI SDK)
+================================ */
 app.post("/api/ai/chat", authenticateApiKey, async (req, res) => {
   try {
-    if (!OPENAI_API_KEY) {
-      return res.status(500).json({
-        statusCode: 500,
-        message: "Server missing OPENAI_API_KEY (set it in Railway Variables)",
-      });
-    }
-
     const { message, messages } = req.body;
 
     const userMessages = Array.isArray(messages)
@@ -203,76 +167,49 @@ app.post("/api/ai/chat", authenticateApiKey, async (req, res) => {
       : [];
 
     if (userMessages.length === 0) {
-      return res.status(400).json({
-        statusCode: 400,
-        message: "Provide 'message' or 'messages' in request body",
-      });
+      return res.status(400).json({ message: "Message required" });
     }
 
-    const SYSTEM_PROMPT =
-      "You are SH Assistant AI. Be friendly, clear, and practical. Explain step-by-step and ask at most one helpful follow-up question when needed.";
-
-    const payload = {
+    const completion = await openai.chat.completions.create({
       model: OPENAI_MODEL,
-      messages: [{ role: "system", content: SYSTEM_PROMPT }, ...userMessages],
-    };
-
-    const r = await fetchFn("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are SH Assistant AI. Be clear, helpful, and step-by-step.",
+        },
+        ...userMessages,
+      ],
     });
 
-    const data = await r.json();
-
-    if (!r.ok) {
-      console.error("OpenAI error:", data);
-      return res.status(500).json({
-        statusCode: 500,
-        message: "OpenAI request failed",
-        error: data,
-      });
-    }
-
-    const reply = data?.choices?.[0]?.message?.content || "No reply.";
+    const reply = completion.choices[0].message.content;
 
     res.json({
-      statusCode: 200,
       reply,
-      usage: { usedToday: req.user.usageCount, limit: DAILY_LIMIT_FREE },
+      usage: {
+        usedToday: req.user.usageCount,
+        limit: DAILY_LIMIT_FREE,
+      },
     });
   } catch (err) {
-    console.error("Server error:", err);
-    res.status(500).json({
-      statusCode: 500,
-      message: "Server error",
-      error: err.message,
-    });
+    console.error(err);
+    res.status(500).json({ message: "OpenAI error", error: err.message });
   }
 });
 
-// ===============================
-// ❌ 404
-// ===============================
+/* ===============================
+   ❌ 404
+================================ */
 app.use((req, res) => {
-  res.status(404).json({
-    statusCode: 404,
-    message: "Endpoint not found",
+  res.status(404).json({ message: "Not found" });
+});
+
+/* ===============================
+   🚀 START SERVER
+================================ */
+(async () => {
+  await sequelize.sync();
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`✅ Server running on port ${PORT}`);
   });
-});
-
-// ===============================
-// 🚀 START SERVER (IMPORTANT FOR RAILWAY)
-// Start listening FIRST, then sync DB in background
-// ===============================
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ server running on ${PORT}`);
-});
-
-sequelize
-  .sync()
-  .then(() => console.log("✅ Database synced"))
-  .catch((err) => console.error("❌ DB sync failed:", err));
+})();
