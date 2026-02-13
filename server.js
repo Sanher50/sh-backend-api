@@ -16,20 +16,26 @@ const OpenAI = require("openai");
 const crypto = require("crypto");
 const { Sequelize, DataTypes } = require("sequelize");
 
-// ✅ Use global fetch (Node 18+/Railway). Fallback if needed.
-let fetchFn = global.fetch;
-if (!fetchFn) {
-  fetchFn = (...args) =>
-    import("node-fetch").then(({ default: fetch }) => fetch(...args));
-}
-
 dotenv.config();
 
 const app = express();
 
-// ✅ Middleware
+// middleware
 app.use(cors());
 app.use(express.json());
+
+// 🔴 ADD THESE RIGHT HERE 🔴
+app.get("/", (req, res) => {
+  res.send("OK");
+});
+
+app.get("/health", (req, res) => {
+  res.json({ ok: true });
+});
+// 🔴 STOP HERE 🔴
+
+// everything else (OpenAI, DB, routes) goes BELOW
+
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
@@ -272,7 +278,8 @@ app.use((req, res) => {
 // ===============================
 (async () => {
   await sequelize.sync();
-  app.listen(PORT, () => {
-    console.log(`✅ SH Backend API running on http://localhost:${PORT}`);
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`✅ server running on ${PORT}`);
   });
 });
+ 
