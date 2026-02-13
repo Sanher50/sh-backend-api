@@ -3,6 +3,8 @@
  * API Keys • SQLite • AI Chat (OpenAI)
  *
  * Endpoints:
+ *  GET  /                     -> "OK"
+ *  GET  /health               -> { ok: true }
  *  GET  /api/status
  *  POST /api/register          { "name": "...", "email": "..." }
  *  POST /api/ai/chat           Header: x-api-key: <key>
@@ -12,7 +14,6 @@
 const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
-const OpenAI = require("openai");
 const crypto = require("crypto");
 const { Sequelize, DataTypes } = require("sequelize");
 
@@ -20,26 +21,18 @@ dotenv.config();
 
 const app = express();
 
-// middleware
+// ===============================
+// ✅ MIDDLEWARE
+// ===============================
 app.use(cors());
 app.use(express.json());
 
-// 🔴 ADD THESE RIGHT HERE 🔴
-app.get("/", (req, res) => {
-  res.send("OK");
-});
+// ✅ Railway/Load balancer health routes
+app.get("/", (req, res) => res.send("OK"));
+app.get("/health", (req, res) => res.json({ ok: true }));
 
-app.get("/health", (req, res) => {
-  res.json({ ok: true });
-});
-// 🔴 STOP HERE 🔴
-
-// everything else (OpenAI, DB, routes) goes BELOW
-
-
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-  });
+// ✅ Node 18+ / Railway has global fetch
+const fetchFn = global.fetch;
 
 // ===============================
 // ⚙️ CONFIG
@@ -91,7 +84,7 @@ function resetUsageIfNewDay(user) {
     user.lastResetAt = now;
   }
 }
- 
+
 // ===============================
 // 🛡️ API KEY AUTH MIDDLEWARE
 // Header: x-api-key: <key>
@@ -203,7 +196,6 @@ app.post("/api/ai/chat", authenticateApiKey, async (req, res) => {
 
     const { message, messages } = req.body;
 
-    // Accept either {message:"..."} or {messages:[...]}
     const userMessages = Array.isArray(messages)
       ? messages
       : message
@@ -217,8 +209,8 @@ app.post("/api/ai/chat", authenticateApiKey, async (req, res) => {
       });
     }
 
-    const SYSTEM_PROMPT = `You are SH Assistant AI. Be friendly, clear, and practical.
-Explain step-by-step and ask at most one helpful follow-up question when needed.`;
+    const SYSTEM_PROMPT =
+      "You are SH Assistant AI. Be friendly, clear, and practical. Explain step-by-step and ask at most one helpful follow-up question when needed.";
 
     const payload = {
       model: OPENAI_MODEL,
@@ -247,7 +239,6 @@ Explain step-by-step and ask at most one helpful follow-up question when needed.
 
     const reply = data?.choices?.[0]?.message?.content || "No reply.";
 
-    // ✅ Return SIMPLE shape for your web apps:
     res.json({
       statusCode: 200,
       reply,
@@ -274,12 +265,14 @@ app.use((req, res) => {
 });
 
 // ===============================
-// 🚀 START SERVER
+// 🚀 START SERVER (IMPORTANT FOR RAILWAY)
+// Start listening FIRST, then sync DB in background
 // ===============================
-(async () => {
-  await sequelize.sync();
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`✅ server running on ${PORT}`);
-  });
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅ server running on ${PORT}`);
 });
- 
+
+sequelize
+  .sync()
+  .then(() => console.log("✅ Database synced"))
+  .catch((err) => console.error("❌ DB sync failed:", err));
