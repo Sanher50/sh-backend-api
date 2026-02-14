@@ -1,12 +1,10 @@
 const express = require("express");
 const router = express.Router();
 
-// Import auth middleware FROM server file
-const { authenticateApiKey } = require("../server-auth"); 
-// (we’ll fix this export in a second)
+const { authenticateApiKey } = require("../server-auth");
 
 // ===============================
-// 🤖 AI CHAT
+// 🤖 AI CHAT (protected)
 // ===============================
 router.post("/chat", authenticateApiKey, async (req, res) => {
   const { message } = req.body;
@@ -14,7 +12,7 @@ router.post("/chat", authenticateApiKey, async (req, res) => {
   if (!message) {
     return res.status(400).json({
       statusCode: 400,
-      message: "Message is required"
+      message: "Message is required",
     });
   }
 
@@ -25,8 +23,8 @@ router.post("/chat", authenticateApiKey, async (req, res) => {
     reply,
     usage: {
       usedToday: req.user.usageCount,
-      limit: 50
-    }
+      limit: 50,
+    },
   });
 });
 

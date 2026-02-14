@@ -1,3 +1,15 @@
+/**
+ * SH BACKEND API — FINAL STABLE VERSION
+ * Platform: Railway
+ *
+ * Public endpoint (frontend):
+ *  POST /api/public/chat
+ *
+ * Debug:
+ *  GET  /health
+ *  GET  /debug/whoami
+ */
+
 const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
@@ -8,35 +20,63 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
-// ===== CONFIG =====
+// ===============================
+// CONFIG
+// ===============================
 const PORT = process.env.PORT || 8080;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-// const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-3.5-turbo";
-
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "*";
 
-// ===== CORS =====
+// Build identifier (proves which file is running)
+const BUILD_TAG =
+  process.env.RAILWAY_GIT_COMMIT_SHA || `local-${Date.now()}`;
+
+// ===============================
+// CORS
+// ===============================
 app.use(
   cors({
     origin: FRONTEND_ORIGIN === "*" ? true : FRONTEND_ORIGIN,
-    methods: ["GET", "POST"],
+    methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["Content-Type"],
   })
 );
 
-// ===== Health =====
+// ===============================
+// HEALTH & DEBUG
+// ===============================
 app.get("/", (req, res) => res.send("OK"));
-app.get("/health", (req, res) => res.json({ ok: true }));
 
-// ===== OpenAI client (safe) =====
+app.get("/health", (req, res) => {
+  res.json({ ok: true, build: BUILD_TAG });
+});
+
+app.get("/debug/whoami", (req, res) => {
+  res.json({
+    running: "server.js",
+    build: BUILD_TAG,
+    port: PORT,
+    hasOpenAIKey: Boolean(OPENAI_API_KEY),
+    model: OPENAI_MODEL,
+  });
+});
+
+// ===============================
+// OPENAI CLIENT
+// ===============================
 if (!OPENAI_API_KEY) {
-  console.error("❌ OPENAI_API_KEY missing");
+  console.error("❌ OPENAI_API_KEY missing in Railway variables");
 }
-const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
-// ===== Simple rate limit for public endpoint =====
-const WINDOW_MS = 60_000;
+const openai = OPENAI_API_KEY
+  ? new OpenAI({ apiKey: OPENAI_API_KEY })
+  : null;
+
+// ===============================
+// SIMPLE RATE LIMIT
+// ===============================
+const WINDOW_MS = 60_000; // 1 minute
 const MAX_REQ = 25;
 const hits = new Map();
 
@@ -58,18 +98,28 @@ function rateLimit(req, res, next) {
   hits.set(ip, entry);
 
   if (entry.count > MAX_REQ) {
-    return res.status(429).json({ error: "Too many requests. Try again in a minute." });
+    return res
+      .status(429)
+      .json({ error: "Too many requests. Try again in a minute." });
   }
 
   next();
 }
 
-// ===== PUBLIC CHAT (frontend uses this) =====
+// ===============================
+// PUBLIC CHAT (FRONTEND USES THIS)
+// ===============================
 app.post("/api/public/chat", rateLimit, async (req, res) => {
   try {
+    // Ping mode (debug)
+    if (req.query.ping === "1") {
+      return res.json({ reply: "pong", build: BUILD_TAG });
+    }
+
     if (!openai) {
       return res.status(500).json({
-        error: "OPENAI_API_KEY missing in Railway Variables"
+        error: "OPENAI_API_KEY missing in Railway variables",
+        build: BUILD_TAG,
       });
     }
 
@@ -82,43 +132,71 @@ app.post("/api/public/chat", rateLimit, async (req, res) => {
       : [];
 
     if (!userMessages.length) {
-      return res.status(400).json({ error: "Provide message or messages" });
+      return res.status(400).json({
+        error: "Provide 'message' or 'messages'",
+        build: BUILD_TAG,
+      });
     }
 
     const SYSTEM_PROMPT =
       "You are SH Assistant AI. Be friendly, clear, and practical. Explain step-by-step.";
 
-    console.log("➡️ Sending to OpenAI:", userMessages);
-
     const completion = await openai.chat.completions.create({
       model: OPENAI_MODEL,
-      messages: [{ role: "system", content: SYSTEM_PROMPT }, ...userMessages],
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        ...userMessages,
+      ],
     });
 
-    console.log("✅ OpenAI response received");
+    const reply =
+      completion?.choices?.[0]?.message?.content || "No reply.";
 
-    const reply = completion?.choices?.[0]?.message?.content || "No reply.";
-
-    return res.json({ reply });
+    return res.json({ reply, build: BUILD_TAG });
   } catch (err) {
     console.error("Public chat error:", err);
-    return res.status(500).json({ error: "Chat error", details: err.message });
+    return res.status(500).json({
+      error: "Chat error",
+      details: err.message,
+      build: BUILD_TAG,
+    });
   }
 });
 
-// ===== PROTECTED CHAT (reserved for future) =====
-app.post("/api/ai/chat", async (req, res) => {
-  return res.status(401).json({
-    error: "This endpoint is protected. Use /api/public/chat for frontend."
+// ===============================
+// RESERVED (FUTURE)
+// ===============================
+app.post("/api/ai/chat", (req, res) => {
+  res.status(401).json({
+    error: "Protected endpoint. Use /api/public/chat",
+    build: BUILD_TAG,
   });
 });
 
-// ===== 404 =====
-app.use((req, res) => res.status(404).json({ error: "Endpoint not found" }));
+// ===============================
+// 404
+// ===============================
+app.use((req, res) =>
+  res.status(404).json({
+    error: "Endpoint not found",
+    build: BUILD_TAG,
+  })
+);
 
-process.on("unhandledRejection", (e) => console.error("unhandledRejection:", e));
-process.on("uncaughtException", (e) => console.error("uncaughtException:", e));
+// ===============================
+// SAFETY
+// ===============================
+process.on("unhandledRejection", (e) =>
+  console.error("unhandledRejection:", e)
+);
+process.on("uncaughtException", (e) =>
+  console.error("uncaughtException:", e)
+);
 
+// ===============================
+// START
+// ===============================
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ server running on port ${PORT}`);
+  console.log(`✅ server running on port ${PORT} | build ${BUILD_TAG}`);
 });
+
