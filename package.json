@@ -1,7 +1,6 @@
 {
   "name": "sh-backend-api",
   "version": "1.0.0",
-  "description": "SH Backend API",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
@@ -12,11 +11,9 @@
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "dotenv": "^17.3.1",
+    "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "openai": "^4.24.1",
-    "sequelize": "^6.37.1",
-    "sqlite3": "^5.1.7"
+    "openai": "^4.0.0"
   }
 }
 
