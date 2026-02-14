@@ -1,17 +1,3 @@
-/**
- * SH BACKEND API — STABLE (Railway + OpenAI)
- *
- * Public endpoint for frontend (NO API KEY):
- *  POST /api/public/chat
- *
- * Protected endpoint (reserved for future):
- *  POST /api/ai/chat
- *
- * Health:
- *  GET /        -> OK
- *  GET /health  -> { ok: true }
- */
-
 const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
@@ -25,18 +11,17 @@ app.use(express.json());
 // ===== CONFIG =====
 const PORT = process.env.PORT || 8080;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+// const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-3.5-turbo";
 
-// IMPORTANT: set this later to your frontend domain for extra security.
-// For now it can be "*"
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "*";
 
 // ===== CORS =====
 app.use(
   cors({
     origin: FRONTEND_ORIGIN === "*" ? true : FRONTEND_ORIGIN,
-    methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "x-api-key"],
+    methods: ["GET", "POST"],
+    allowedHeaders: ["Content-Type"],
   })
 );
 
@@ -45,6 +30,9 @@ app.get("/", (req, res) => res.send("OK"));
 app.get("/health", (req, res) => res.json({ ok: true }));
 
 // ===== OpenAI client (safe) =====
+if (!OPENAI_API_KEY) {
+  console.error("❌ OPENAI_API_KEY missing");
+}
 const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
 // ===== Simple rate limit for public endpoint =====
@@ -99,14 +87,15 @@ app.post("/api/public/chat", rateLimit, async (req, res) => {
 
     const SYSTEM_PROMPT =
       "You are SH Assistant AI. Be friendly, clear, and practical. Explain step-by-step.";
-console.log("➡️ Sending to OpenAI:", userMessages);
 
-const completion = await openai.chat.completions.create({
-  model: OPENAI_MODEL,
-  messages: [{ role: "system", content: SYSTEM_PROMPT }, ...userMessages],
-});
+    console.log("➡️ Sending to OpenAI:", userMessages);
 
-console.log("✅ OpenAI response received");
+    const completion = await openai.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages: [{ role: "system", content: SYSTEM_PROMPT }, ...userMessages],
+    });
+
+    console.log("✅ OpenAI response received");
 
     const reply = completion?.choices?.[0]?.message?.content || "No reply.";
 
@@ -127,11 +116,9 @@ app.post("/api/ai/chat", async (req, res) => {
 // ===== 404 =====
 app.use((req, res) => res.status(404).json({ error: "Endpoint not found" }));
 
-// ===== Prevent crashes =====
 process.on("unhandledRejection", (e) => console.error("unhandledRejection:", e));
 process.on("uncaughtException", (e) => console.error("uncaughtException:", e));
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ server running on port ${PORT}`);
 });
-
