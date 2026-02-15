@@ -21,6 +21,19 @@ const app = express();
 app.use(express.json());
 
 // ===============================
+// SH BACKEND API KEY MIDDLEWARE
+// ===============================
+function requireShApiKey(req, res, next) {
+  const key = req.headers["x-sh-api-key"];
+
+  if (!key || key !== process.env.SH_API_KEY) {
+    return res.status(401).json({ error: "Invalid SH API key" });
+  }
+
+  next();
+}
+
+// ===============================
 // CONFIG
 // ===============================
 const PORT = process.env.PORT || 8080;
@@ -109,7 +122,11 @@ function rateLimit(req, res, next) {
 // ===============================
 // PUBLIC CHAT (FRONTEND USES THIS)
 // ===============================
-app.post("/api/public/chat", rateLimit, async (req, res) => {
+app.post(
+  "/api/public/chat",
+  requireShApiKey,
+  rateLimit,
+  async (req, res) => {
   try {
     // Ping mode (debug)
     if (req.query.ping === "1") {
