@@ -1,9 +1,9 @@
 /**
- * SH BACKEND API — FINAL STABLE VERSION (CLEAN)
+ * SH BACKEND API — FINAL STABLE VERSION
  * Platform: Railway
  *
  * Public endpoint (frontend / testing):
- *  POST /api/public/chat   (requires x-sh-api-key)
+ *  POST /api/public/chat
  *
  * Debug:
  *  GET  /health
@@ -41,28 +41,37 @@ app.use(
   cors({
     origin: FRONTEND_ORIGIN === "*" ? true : FRONTEND_ORIGIN,
     methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "x-sh-api-key", "x-api-key"],
+    allowedHeaders: ["Content-Type", "x-sh-api-key"],
   })
 );
 
 // ===============================
-// MIDDLEWARE: SH API KEY
+// SH API KEY MIDDLEWARE
 // ===============================
 function requireShApiKey(req, res, next) {
   const key = req.headers["x-sh-api-key"];
+
   if (!SH_API_KEY) {
-    return res.status(500).json({ error: "SH_API_KEY missing on server", build: BUILD_TAG });
+    return res.status(500).json({
+      error: "SH_API_KEY missing on server",
+      build: BUILD_TAG,
+    });
   }
+
   if (!key || key !== SH_API_KEY) {
-    return res.status(401).json({ error: "Invalid SH API key", build: BUILD_TAG });
+    return res.status(401).json({
+      error: "Invalid SH API key",
+      build: BUILD_TAG,
+    });
   }
+
   next();
 }
 
 // ===============================
 // SIMPLE RATE LIMIT
 // ===============================
-const WINDOW_MS = 60_000; // 1 minute
+const WINDOW_MS = 60_000;
 const MAX_REQ = 25;
 const hits = new Map();
 
@@ -84,9 +93,10 @@ function rateLimit(req, res, next) {
   hits.set(ip, entry);
 
   if (entry.count > MAX_REQ) {
-    return res
-      .status(429)
-      .json({ error: "Too many requests. Try again in a minute.", build: BUILD_TAG });
+    return res.status(429).json({
+      error: "Too many requests. Try again in a minute.",
+      build: BUILD_TAG,
+    });
   }
 
   next();
@@ -96,9 +106,12 @@ function rateLimit(req, res, next) {
 // OPENAI CLIENT
 // ===============================
 if (!OPENAI_API_KEY) {
-  console.error("❌ OPENAI_API_KEY missing in environment (local .env or Railway variables)");
+  console.error("❌ OPENAI_API_KEY missing in environment");
 }
-const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
+
+const openai = OPENAI_API_KEY
+  ? new OpenAI({ apiKey: OPENAI_API_KEY })
+  : null;
 
 // ===============================
 // HEALTH & DEBUG
@@ -124,15 +137,15 @@ app.get("/debug/whoami", (req, res) => {
   });
 });
 
-// ✅ This is the route you asked to add
 app.get("/debug/routes", (req, res) => {
   const routes = [];
 
-  // Express keeps routes in internal stacks (app._router.stack)
   const stack = app._router?.stack || [];
   for (const m of stack) {
     if (m.route && m.route.path) {
-      const methods = Object.keys(m.route.methods).map((x) => x.toUpperCase());
+      const methods = Object.keys(m.route.methods).map((x) =>
+        x.toUpperCase()
+      );
       routes.push({ path: m.route.path, methods });
     }
   }
@@ -142,56 +155,68 @@ app.get("/debug/routes", (req, res) => {
 
 // ===============================
 // PUBLIC CHAT (FRONTEND / TESTING)
-// Requires: x-sh-api-key
 // ===============================
-app.post("/api/public/chat", requireShApiKey, rateLimit, async (req, res) => {
-  try {
-    // Ping mode (no OpenAI call)
-    if (req.query.ping === "1") {
-      return res.json({ reply: "pong", build: BUILD_TAG });
-    }
+app.post(
+  "/api/public/chat",
+  requireShApiKey,
+  rateLimit,
+  async (req, res) => {
+    try {
+      // Ping mode (debug)
+      if (req.query.ping === "1") {
+        return res.json({ reply: "pong", build: BUILD_TAG });
+      }
 
-    if (!openai) {
+      if (!openai) {
+        return res.status(500).json({
+          error: "OPENAI_API_KEY missing in environment",
+          build: BUILD_TAG,
+        });
+      }
+
+      const { message, messages } = req.body || {};
+
+      const userMessages = Array.isArray(messages)
+        ? messages
+        : message
+        ? [{ role: "user", content: String(message) }]
+        : [];
+
+      if (!userMessages.length) {
+        return res.status(400).json({
+          error: "Provide 'message' or 'messages'",
+          build: BUILD_TAG,
+        });
+      }
+
+      const SYSTEM_PROMPT =
+        "You are SH Assistant AI. Be friendly, calm, and practical. Explain step-by-step.";
+
+      const completion = await openai.chat.completions.create({
+        model: OPENAI_MODEL,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          ...userMessages,
+        ],
+      });
+
+      const reply =
+        completion?.choices?.[0]?.message?.content || "No reply.";
+
+      return res.json({ reply, build: BUILD_TAG });
+
+    } catch (err) {
+      console.error("Public chat error:", err);
       return res.status(500).json({
-        error: "OPENAI_API_KEY missing in environment",
+        error: "Chat error",
+        details: err?.message || String(err),
+        cause: err?.cause ? String(err.cause) : null,
+        name: err?.name || null,
         build: BUILD_TAG,
       });
     }
-
-    const { message, messages } = req.body || {};
-
-    const userMessages = Array.isArray(messages)
-      ? messages
-      : message
-      ? [{ role: "user", content: String(message) }]
-      : [];
-
-    if (!userMessages.length) {
-      return res.status(400).json({
-        error: "Provide 'message' or 'messages'",
-        build: BUILD_TAG,
-      });
-    }
-
-    const SYSTEM_PROMPT =
-      "You are SH Assistant AI. Be friendly, calm, and practical. Explain step-by-step.";
-
-    const completion = await openai.chat.completions.create({
-      model: OPENAI_MODEL,
-      messages: [{ role: "system", content: SYSTEM_PROMPT }, ...userMessages],
-    });
-
-    const reply = completion?.choices?.[0]?.message?.content || "No reply.";
-    return res.json({ reply, build: BUILD_TAG });
-  } catch (err) {
-    console.error("Public chat error:", err);
-    return res.status(500).json({
-      error: "Chat error",
-      details: err?.message || String(err),
-      build: BUILD_TAG,
-    });
   }
-});
+);
 
 // ===============================
 // 404 (LAST)
@@ -207,8 +232,12 @@ app.use((req, res) =>
 // ===============================
 // SAFETY
 // ===============================
-process.on("unhandledRejection", (e) => console.error("unhandledRejection:", e));
-process.on("uncaughtException", (e) => console.error("uncaughtException:", e));
+process.on("unhandledRejection", (e) =>
+  console.error("unhandledRejection:", e)
+);
+process.on("uncaughtException", (e) =>
+  console.error("uncaughtException:", e)
+);
 
 // ===============================
 // START
