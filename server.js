@@ -20,9 +20,24 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
+app.get("/", (req, res) => {
+  res.send("OK");
+});
+
+app.get("/health", (req, res) => {
+  res.json({ ok: true });
+});
+
+app.get("/debug/whoami", (req, res) => {
+  res.json({
+    ip: req.ip,
+    headers: req.headers,
+    env: process.env.NODE_ENV || "unknown",
+  });
+});
+
 // ===============================
 // SH BACKEND API KEY MIDDLEWARE
-// (Keep it for future protected routes; do NOT use for public frontend)
 // ===============================
 function requireShApiKey(req, res, next) {
   const key = req.headers["x-sh-api-key"];
@@ -41,8 +56,7 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-3.5-turbo";
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "*";
 
 // Build identifier (proves which file is running)
-const BUILD_TAG =
-  process.env.RAILWAY_GIT_COMMIT_SHA || `local-${Date.now()}`;
+const BUILD_TAG = process.env.RAILWAY_GIT_COMMIT_SHA || `local-${Date.now()}`;
 
 // ===============================
 // CORS
@@ -51,10 +65,12 @@ app.use(
   cors({
     origin: FRONTEND_ORIGIN === "*" ? true : FRONTEND_ORIGIN,
     methods: ["GET", "POST", "OPTIONS"],
-    // include x-sh-api-key so you can test/protect later if needed
-    allowedHeaders: ["Content-Type", "x-sh-api-key"],
+    allowedHeaders: ["Content-Type", "x-sh-api-key"], // ✅ important
   })
 );
+
+// (Optional but helpful for preflight)
+app.options("*", cors());
 
 // ===============================
 // HEALTH & DEBUG
@@ -71,6 +87,7 @@ app.get("/debug/whoami", (req, res) => {
     build: BUILD_TAG,
     port: PORT,
     hasOpenAIKey: Boolean(OPENAI_API_KEY),
+    hasShApiKey: Boolean(process.env.SH_API_KEY),
     model: OPENAI_MODEL,
   });
 });
@@ -120,9 +137,9 @@ function rateLimit(req, res, next) {
 // ===============================
 // PUBLIC CHAT (FRONTEND USES THIS)
 // ===============================
-app.post("/api/public/chat", rateLimit, async (req, res) => {
+app.post("/api/public/chat", requireShApiKey, rateLimit, async (req, res) => {
   try {
-    // Ping mode (debug)
+    // Ping mode (debug) - does NOT call OpenAI
     if (req.query.ping === "1") {
       return res.json({ reply: "pong", build: BUILD_TAG });
     }
@@ -134,13 +151,12 @@ app.post("/api/public/chat", rateLimit, async (req, res) => {
       });
     }
 
-    // Accept either { message: "hi" } or { messages: [...] }
     const { message, messages } = req.body || {};
 
     const userMessages = Array.isArray(messages)
       ? messages
       : message
-      ? [{ role: "user", content: String(message) }]
+      ? [{ role: "user", content: message }]
       : [];
 
     if (!userMessages.length) {
@@ -165,7 +181,7 @@ app.post("/api/public/chat", rateLimit, async (req, res) => {
     console.error("Public chat error:", err);
     return res.status(500).json({
       error: "Chat error",
-      details: err?.message || String(err),
+      details: err.message,
       build: BUILD_TAG,
     });
   }
@@ -173,7 +189,6 @@ app.post("/api/public/chat", rateLimit, async (req, res) => {
 
 // ===============================
 // RESERVED (FUTURE)
-// (Example protected route: add requireShApiKey here later)
 // ===============================
 app.post("/api/ai/chat", (req, res) => {
   res.status(401).json({
@@ -188,6 +203,7 @@ app.post("/api/ai/chat", (req, res) => {
 app.use((req, res) =>
   res.status(404).json({
     error: "Endpoint not found",
+    path: req.path,
     build: BUILD_TAG,
   })
 );
