@@ -118,27 +118,42 @@ function rateLimit(req, res, next) {
 
   next();
 }
-
 // ===============================
 // PUBLIC CHAT (FRONTEND USES THIS)
 // ===============================
 app.post(
   "/api/public/chat",
-  requireShApiKey,
   rateLimit,
   async (req, res) => {
-  try {
-    // Ping mode (debug)
-    if (req.query.ping === "1") {
-      return res.json({ reply: "pong", build: BUILD_TAG });
-    }
+    try {
+      // Ping mode (debug)
+      if (req.query.ping === "1") {
+        return res.json({ reply: "pong", build: BUILD_TAG });
+      }
 
-    if (!openai) {
+      if (!openai) {
+        return res.status(500).json({
+          error: "OPENAI_API_KEY missing in Railway variables",
+          build: BUILD_TAG,
+        });
+      }
+
+      // 🔽 your OpenAI logic continues here
+      // const message = req.body.message;
+      // const response = await openai.chat.completions.create(...)
+      // return res.json({ reply: response.choices[0].message.content });
+
+    } catch (err) {
+      console.error("Chat error:", err);
       return res.status(500).json({
-        error: "OPENAI_API_KEY missing in Railway variables",
+        error: "Chat error",
+        details: err.message,
         build: BUILD_TAG,
       });
     }
+  }
+);
+
 
     const { message, messages } = req.body || {};
 
