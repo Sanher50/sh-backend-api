@@ -1,13 +1,14 @@
 /**
- * SH BACKEND API — FINAL STABLE VERSION
+ * SH BACKEND API — FINAL STABLE VERSION (CLEAN)
  * Platform: Railway
  *
- * Public endpoint (frontend):
- *  POST /api/public/chat
+ * Public endpoint (frontend / testing):
+ *  POST /api/public/chat   (requires x-sh-api-key)
  *
  * Debug:
  *  GET  /health
  *  GET  /debug/whoami
+ *  GET  /debug/routes
  */
 
 const express = require("express");
@@ -20,25 +21,6 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
-const chatRoutes = require("./routes/chat");
-const aiRoutes = require("./routes/ai.routes");
-
-app.use("/api", chatRoutes);
-app.use("/api", aiRoutes);
-
-// ===============================
-// SH BACKEND API KEY MIDDLEWARE
-// ===============================
-function requireShApiKey(req, res, next) {
-  const key = req.headers["x-sh-api-key"];
-
-  if (!key || key !== process.env.SH_API_KEY) {
-    return res.status(401).json({ error: "Invalid SH API key" });
-  }
-
-  next();
-}
-
 // ===============================
 // CONFIG
 // ===============================
@@ -46,8 +28,9 @@ const PORT = process.env.PORT || 8080;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "*";
+const SH_API_KEY = process.env.SH_API_KEY;
 
-// Build identifier (proves which file is running)
+// Build identifier
 const BUILD_TAG =
   process.env.RAILWAY_GIT_COMMIT_SHA || `local-${Date.now()}`;
 
@@ -58,41 +41,23 @@ app.use(
   cors({
     origin: FRONTEND_ORIGIN === "*" ? true : FRONTEND_ORIGIN,
     methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "X-SH-API-KEY"],
+    allowedHeaders: ["Content-Type", "x-sh-api-key", "x-api-key"],
   })
 );
 
 // ===============================
-// HEALTH & DEBUG
+// MIDDLEWARE: SH API KEY
 // ===============================
-app.get("/", (req, res) => res.send("OK"));
-
-app.get("/health", (req, res) => {
-  res.json({ ok: true, build: BUILD_TAG });
-});
-
-app.get("/debug/whoami", (req, res) => {
-  res.json({
-    running: "server.js",
-    build: BUILD_TAG,
-    port: PORT,
-    hasOpenAIKey: Boolean(OPENAI_API_KEY),
-    model: OPENAI_MODEL,
-    ip:
-      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-      req.socket.remoteAddress ||
-      "unknown",
-  });
-});
-
-// ===============================
-// OPENAI CLIENT
-// ===============================
-if (!OPENAI_API_KEY) {
-  console.error("❌ OPENAI_API_KEY missing in Railway variables");
+function requireShApiKey(req, res, next) {
+  const key = req.headers["x-sh-api-key"];
+  if (!SH_API_KEY) {
+    return res.status(500).json({ error: "SH_API_KEY missing on server", build: BUILD_TAG });
+  }
+  if (!key || key !== SH_API_KEY) {
+    return res.status(401).json({ error: "Invalid SH API key", build: BUILD_TAG });
+  }
+  next();
 }
-
-const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
 // ===============================
 // SIMPLE RATE LIMIT
@@ -121,25 +86,74 @@ function rateLimit(req, res, next) {
   if (entry.count > MAX_REQ) {
     return res
       .status(429)
-      .json({ error: "Too many requests. Try again in a minute." });
+      .json({ error: "Too many requests. Try again in a minute.", build: BUILD_TAG });
   }
 
   next();
 }
 
 // ===============================
-// PUBLIC CHAT (FRONTEND USES THIS)
+// OPENAI CLIENT
+// ===============================
+if (!OPENAI_API_KEY) {
+  console.error("❌ OPENAI_API_KEY missing in environment (local .env or Railway variables)");
+}
+const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
+
+// ===============================
+// HEALTH & DEBUG
+// ===============================
+app.get("/", (req, res) => res.send("OK"));
+
+app.get("/health", (req, res) => {
+  res.json({ ok: true, build: BUILD_TAG });
+});
+
+app.get("/debug/whoami", (req, res) => {
+  res.json({
+    running: "server.js",
+    build: BUILD_TAG,
+    port: PORT,
+    hasOpenAIKey: Boolean(OPENAI_API_KEY),
+    hasShApiKey: Boolean(SH_API_KEY),
+    model: OPENAI_MODEL,
+    ip:
+      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+      req.socket.remoteAddress ||
+      "unknown",
+  });
+});
+
+// ✅ This is the route you asked to add
+app.get("/debug/routes", (req, res) => {
+  const routes = [];
+
+  // Express keeps routes in internal stacks (app._router.stack)
+  const stack = app._router?.stack || [];
+  for (const m of stack) {
+    if (m.route && m.route.path) {
+      const methods = Object.keys(m.route.methods).map((x) => x.toUpperCase());
+      routes.push({ path: m.route.path, methods });
+    }
+  }
+
+  res.json({ routes, build: BUILD_TAG });
+});
+
+// ===============================
+// PUBLIC CHAT (FRONTEND / TESTING)
+// Requires: x-sh-api-key
 // ===============================
 app.post("/api/public/chat", requireShApiKey, rateLimit, async (req, res) => {
   try {
-    // Ping mode (debug)
+    // Ping mode (no OpenAI call)
     if (req.query.ping === "1") {
       return res.json({ reply: "pong", build: BUILD_TAG });
     }
 
     if (!openai) {
       return res.status(500).json({
-        error: "OPENAI_API_KEY missing in Railway variables",
+        error: "OPENAI_API_KEY missing in environment",
         build: BUILD_TAG,
       });
     }
@@ -149,7 +163,7 @@ app.post("/api/public/chat", requireShApiKey, rateLimit, async (req, res) => {
     const userMessages = Array.isArray(messages)
       ? messages
       : message
-      ? [{ role: "user", content: message }]
+      ? [{ role: "user", content: String(message) }]
       : [];
 
     if (!userMessages.length) {
@@ -160,7 +174,7 @@ app.post("/api/public/chat", requireShApiKey, rateLimit, async (req, res) => {
     }
 
     const SYSTEM_PROMPT =
-      "You are SH Assistant AI. Be friendly, clear, and practical. Explain step-by-step.";
+      "You are SH Assistant AI. Be friendly, calm, and practical. Explain step-by-step.";
 
     const completion = await openai.chat.completions.create({
       model: OPENAI_MODEL,
@@ -168,30 +182,19 @@ app.post("/api/public/chat", requireShApiKey, rateLimit, async (req, res) => {
     });
 
     const reply = completion?.choices?.[0]?.message?.content || "No reply.";
-
     return res.json({ reply, build: BUILD_TAG });
   } catch (err) {
     console.error("Public chat error:", err);
     return res.status(500).json({
       error: "Chat error",
-      details: err.message,
+      details: err?.message || String(err),
       build: BUILD_TAG,
     });
   }
 });
 
 // ===============================
-// RESERVED (FUTURE)
-// ===============================
-app.post("/api/ai/chat", (req, res) => {
-  res.status(401).json({
-    error: "Protected endpoint. Use /api/public/chat",
-    build: BUILD_TAG,
-  });
-});
-
-// ===============================
-// 404
+// 404 (LAST)
 // ===============================
 app.use((req, res) =>
   res.status(404).json({
@@ -213,4 +216,3 @@ process.on("uncaughtException", (e) => console.error("uncaughtException:", e));
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ server running on port ${PORT} | build ${BUILD_TAG}`);
 });
-
