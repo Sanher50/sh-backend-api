@@ -22,14 +22,13 @@ app.use(express.json());
 
 // ===============================
 // SH BACKEND API KEY MIDDLEWARE
+// (Keep it for future protected routes; do NOT use for public frontend)
 // ===============================
 function requireShApiKey(req, res, next) {
   const key = req.headers["x-sh-api-key"];
-
   if (!key || key !== process.env.SH_API_KEY) {
     return res.status(401).json({ error: "Invalid SH API key" });
   }
-
   next();
 }
 
@@ -52,7 +51,8 @@ app.use(
   cors({
     origin: FRONTEND_ORIGIN === "*" ? true : FRONTEND_ORIGIN,
     methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type"],
+    // include x-sh-api-key so you can test/protect later if needed
+    allowedHeaders: ["Content-Type", "x-sh-api-key"],
   })
 );
 
@@ -82,9 +82,7 @@ if (!OPENAI_API_KEY) {
   console.error("❌ OPENAI_API_KEY missing in Railway variables");
 }
 
-const openai = OPENAI_API_KEY
-  ? new OpenAI({ apiKey: OPENAI_API_KEY })
-  : null;
+const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
 // ===============================
 // SIMPLE RATE LIMIT
@@ -118,49 +116,31 @@ function rateLimit(req, res, next) {
 
   next();
 }
+
 // ===============================
 // PUBLIC CHAT (FRONTEND USES THIS)
 // ===============================
-app.post(
-  "/api/public/chat",
-  rateLimit,
-  async (req, res) => {
-    try {
-      // Ping mode (debug)
-      if (req.query.ping === "1") {
-        return res.json({ reply: "pong", build: BUILD_TAG });
-      }
+app.post("/api/public/chat", rateLimit, async (req, res) => {
+  try {
+    // Ping mode (debug)
+    if (req.query.ping === "1") {
+      return res.json({ reply: "pong", build: BUILD_TAG });
+    }
 
-      if (!openai) {
-        return res.status(500).json({
-          error: "OPENAI_API_KEY missing in Railway variables",
-          build: BUILD_TAG,
-        });
-      }
-
-      // 🔽 your OpenAI logic continues here
-      // const message = req.body.message;
-      // const response = await openai.chat.completions.create(...)
-      // return res.json({ reply: response.choices[0].message.content });
-
-    } catch (err) {
-      console.error("Chat error:", err);
+    if (!openai) {
       return res.status(500).json({
-        error: "Chat error",
-        details: err.message,
+        error: "OPENAI_API_KEY missing in Railway variables",
         build: BUILD_TAG,
       });
     }
-  }
-);
 
-
+    // Accept either { message: "hi" } or { messages: [...] }
     const { message, messages } = req.body || {};
 
     const userMessages = Array.isArray(messages)
       ? messages
       : message
-      ? [{ role: "user", content: message }]
+      ? [{ role: "user", content: String(message) }]
       : [];
 
     if (!userMessages.length) {
@@ -175,21 +155,17 @@ app.post(
 
     const completion = await openai.chat.completions.create({
       model: OPENAI_MODEL,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        ...userMessages,
-      ],
+      messages: [{ role: "system", content: SYSTEM_PROMPT }, ...userMessages],
     });
 
-    const reply =
-      completion?.choices?.[0]?.message?.content || "No reply.";
+    const reply = completion?.choices?.[0]?.message?.content || "No reply.";
 
     return res.json({ reply, build: BUILD_TAG });
   } catch (err) {
     console.error("Public chat error:", err);
     return res.status(500).json({
       error: "Chat error",
-      details: err.message,
+      details: err?.message || String(err),
       build: BUILD_TAG,
     });
   }
@@ -197,6 +173,7 @@ app.post(
 
 // ===============================
 // RESERVED (FUTURE)
+// (Example protected route: add requireShApiKey here later)
 // ===============================
 app.post("/api/ai/chat", (req, res) => {
   res.status(401).json({
@@ -218,12 +195,8 @@ app.use((req, res) =>
 // ===============================
 // SAFETY
 // ===============================
-process.on("unhandledRejection", (e) =>
-  console.error("unhandledRejection:", e)
-);
-process.on("uncaughtException", (e) =>
-  console.error("uncaughtException:", e)
-);
+process.on("unhandledRejection", (e) => console.error("unhandledRejection:", e));
+process.on("uncaughtException", (e) => console.error("uncaughtException:", e));
 
 // ===============================
 // START
@@ -231,4 +204,3 @@ process.on("uncaughtException", (e) =>
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ server running on port ${PORT} | build ${BUILD_TAG}`);
 });
-
