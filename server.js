@@ -9,6 +9,7 @@
  *  GET  /health
  *  GET  /debug/whoami
  *  GET  /debug/routes
+ *  GET  /debug/openai-key-check   ✅ (safe key format check)
  */
 
 const express = require("express");
@@ -151,6 +152,18 @@ app.get("/debug/routes", (req, res) => {
   }
 
   res.json({ routes, build: BUILD_TAG });
+});
+
+// ✅ SAFE KEY CHECK (does NOT expose your secret)
+app.get("/debug/openai-key-check", (req, res) => {
+  const k = (process.env.OPENAI_API_KEY || "").trim();
+  res.json({
+    exists: Boolean(k),
+    startsWithBearer: k.toLowerCase().startsWith("bearer "),
+    startsWithSk: k.startsWith("sk-") || k.startsWith("sk-proj-"),
+    length: k.length,
+    build: BUILD_TAG,
+  });
 });
 
 // ===============================
