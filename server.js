@@ -21,7 +21,9 @@ const OpenAI = require("openai");
 dotenv.config();
 
 const app = express();
-app.use(express.json());
+
+// ✅ helps rate-limit IP + headers when behind Railway proxy
+app.set("trust proxy", 1);
 
 // ===============================
 // CONFIG
@@ -39,6 +41,11 @@ const BUILD_TAG =
   process.env.RAILWAY_GIT_COMMIT_SHA || `local-${Date.now()}`;
 
 // ===============================
+// BODY PARSER
+// ===============================
+app.use(express.json({ limit: "1mb" }));
+
+// ===============================
 // CORS
 // ===============================
 app.use(
@@ -48,6 +55,9 @@ app.use(
     allowedHeaders: ["Content-Type", "x-sh-api-key"],
   })
 );
+
+// ✅ IMPORTANT: respond to browser preflight
+app.options("*", cors());
 
 // ===============================
 // SH API KEY MIDDLEWARE
@@ -142,8 +152,8 @@ app.get("/debug/whoami", (req, res) => {
 
 app.get("/debug/routes", (req, res) => {
   const routes = [];
-
   const stack = app._router?.stack || [];
+
   for (const m of stack) {
     if (m.route && m.route.path) {
       const methods = Object.keys(m.route.methods).map((x) => x.toUpperCase());
