@@ -9,7 +9,8 @@
  *  GET  /health
  *  GET  /debug/whoami
  *  GET  /debug/routes
- *  GET  /debug/openai-key-check   ✅ (safe key format check)
+ *  GET  /debug/openai-key-check
+ *  GET  /debug/openai-key-chars
  */
 
 const express = require("express");
@@ -166,6 +167,18 @@ app.get("/debug/openai-key-check", (req, res) => {
   });
 });
 
+// ✅ Detect illegal characters (newlines/spaces) without revealing key
+app.get("/debug/openai-key-chars", (req, res) => {
+  const k = process.env.OPENAI_API_KEY || "";
+  res.json({
+    length: k.length,
+    hasNewline: k.includes("\n") || k.includes("\r"),
+    hasSpaceEnds: k !== k.trim(),
+    startsWithSk: k.trim().startsWith("sk-") || k.trim().startsWith("sk-proj-"),
+    build: BUILD_TAG,
+  });
+});
+
 // ===============================
 // PUBLIC CHAT (FRONTEND / TESTING)
 // ===============================
@@ -217,7 +230,6 @@ app.post(
         completion?.choices?.[0]?.message?.content || "No reply.";
 
       return res.json({ reply, build: BUILD_TAG });
-
     } catch (err) {
       console.error("Public chat error:", err);
       return res.status(500).json({
