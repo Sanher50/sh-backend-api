@@ -5,6 +5,13 @@
  * Public endpoint (frontend / testing):
  *  POST /api/public/chat
  *
+ * AI endpoints:
+ *  POST /ai/quiz
+ *  POST /ai/flashcards
+ *  POST /ai/code-explainer
+ *  POST /ai/research-finder
+ *  POST /ai/interview-simulator
+ *
  * Debug:
  *  GET  /health
  *  GET  /debug/whoami
@@ -17,6 +24,9 @@ const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
 const OpenAI = require("openai");
+
+// ✅ NEW: mount AI router
+const aiRoutes = require("./routes/ai/ai.routes");
 
 dotenv.config();
 
@@ -187,6 +197,12 @@ app.get("/debug/openai-key-chars", (req, res) => {
     build: BUILD_TAG,
   });
 });
+
+// ===============================
+// ✅ NEW: AI ROUTES (PROTECTED)
+// ===============================
+// Mount all AI endpoints under /ai and protect them:
+app.use("/ai", requireShApiKey, rateLimit, aiRoutes);
 
 // ===============================
 // PUBLIC CHAT (FRONTEND / TESTING)
