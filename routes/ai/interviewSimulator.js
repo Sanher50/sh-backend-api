@@ -1,5 +1,5 @@
-import express from "express";
-import { simulateInterview } from "../../services/ai.service.js";
+const express = require("express");
+const { simulateInterview } = require("../../services/ai.service");
 
 const router = express.Router();
 
@@ -10,14 +10,14 @@ router.post("/", async (req, res) => {
       experience = "1 year CS student",
       topics = ["data structures", "ml basics"],
       difficulty = "medium",
-    } = req.body;
+    } = req.body || {};
 
     const data = await simulateInterview({ role, experience, topics, difficulty });
     res.json(data);
   } catch (err) {
-    console.error("❌ /interview-simulator error:", err.message);
-    res.status(400).json({ error: err.message });
+    console.error("❌ /ai/interview-simulator error:", err);
+    res.status(400).json({ error: err.message || "Interview failed" });
   }
 });
 
-export default router;
+module.exports = router;

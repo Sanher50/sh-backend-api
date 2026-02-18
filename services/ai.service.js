@@ -1,6 +1,6 @@
-import { chatJSON } from "./openaiService.js";
+const { chatJSON } = require("./openaiService");
 
-export async function generateQuiz({ topic, level = "beginner", count = 8 }) {
+async function generateQuiz({ topic, level = "beginner", count = 8 }) {
   if (!topic) throw new Error("Missing 'topic'");
 
   const system = `
@@ -15,7 +15,7 @@ No extra keys.
   return chatJSON({ system, user, temperature: 0.6 });
 }
 
-export async function generateFlashcards({ notes, count = 12 }) {
+async function generateFlashcards({ notes, count = 12 }) {
   if (!notes) throw new Error("Missing 'notes'");
 
   const system = `
@@ -30,7 +30,7 @@ No extra keys.
   return chatJSON({ system, user, temperature: 0.5 });
 }
 
-export async function explainCode({ code, language = "javascript", focus = "" }) {
+async function explainCode({ code, language = "javascript", focus = "" }) {
   if (!code) throw new Error("Missing 'code'");
 
   const system = `
@@ -48,7 +48,7 @@ No extra keys.
   return chatJSON({ system, user, temperature: 0.6 });
 }
 
-export async function findResearch({ topic, count = 5 }) {
+async function findResearch({ topic, count = 5 }) {
   if (!topic) throw new Error("Missing 'topic'");
 
   const system = `
@@ -64,7 +64,7 @@ No extra keys.
   return chatJSON({ system, user, temperature: 0.4 });
 }
 
-export async function simulateInterview({
+async function simulateInterview({
   role = "AI engineer",
   experience = "1 year CS student",
   topics = ["data structures", "ml basics"],
@@ -87,4 +87,13 @@ No extra keys.
 
   return chatJSON({ system, user, temperature: 0.6 });
 }
+
+module.exports = {
+  generateQuiz,
+  generateFlashcards,
+  explainCode,
+  findResearch,
+  simulateInterview,
+};
+
 

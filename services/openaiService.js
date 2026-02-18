@@ -1,20 +1,13 @@
-import OpenAI from "openai";
+const OpenAI = require("openai");
 
-const apiKey = process.env.OPENAI_API_KEY;
-if (!apiKey) {
-  console.warn("⚠️ OPENAI_API_KEY is missing. Add it to .env / Railway Variables.");
-}
+const apiKey = (process.env.OPENAI_API_KEY || "").trim();
+const client = apiKey ? new OpenAI({ apiKey }) : null;
 
-const client = new OpenAI({ apiKey });
+async function chatJSON({ system, user, temperature = 0.6 }) {
+  if (!client) throw new Error("OPENAI_API_KEY missing in environment");
 
-export async function chatJSON({
-  system,
-  user,
-  model = process.env.OPENAI_MODEL || "gpt-4.1-mini",
-  temperature = 0.6,
-}) {
   const resp = await client.chat.completions.create({
-    model,
+    model: process.env.OPENAI_MODEL || "gpt-4o-mini",
     messages: [
       { role: "system", content: system },
       { role: "user", content: user },
@@ -23,11 +16,12 @@ export async function chatJSON({
     temperature,
   });
 
-  const text = resp.choices?.[0]?.message?.content ?? "{}";
+  const text = resp.choices?.[0]?.message?.content || "{}";
   try {
     return JSON.parse(text);
-  } catch (e) {
-    // If the model ever returns invalid JSON, surface it clearly
-    throw new Error(`Model returned invalid JSON: ${text}`);
+  } catch {
+    throw new Error("Model returned invalid JSON");
   }
 }
+
+module.exports = { chatJSON };

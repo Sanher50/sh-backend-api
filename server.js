@@ -18,17 +18,24 @@
  *  GET  /debug/routes
  *  GET  /debug/openai-key-check
  *  GET  /debug/openai-key-chars
+ *  GET  /debug/sh-api-key-check
+ *  GET  /debug/env-path
  */
 
 const express = require("express");
-const dotenv = require("dotenv");
 const cors = require("cors");
 const OpenAI = require("openai");
+const dotenv = require("dotenv");
+const path = require("path");
+const fs = require("fs");
 
-// ✅ NEW: mount AI router
+// 🔐 Force-load .env from same directory as server.js
+dotenv.config({
+  path: path.resolve(__dirname, ".env"),
+});
+
+// ✅ mount AI router
 const aiRoutes = require("./routes/ai/ai.routes");
-
-dotenv.config();
 
 const app = express();
 
@@ -160,6 +167,32 @@ app.get("/debug/whoami", (req, res) => {
   });
 });
 
+// ✅ SH key diagnostics (safe — does not reveal secret)
+app.get("/debug/sh-api-key-check", (req, res) => {
+  const k = process.env.SH_API_KEY || "";
+  res.json({
+    exists: Boolean(k),
+    length: k.length,
+    trimmedLength: k.trim().length,
+    hasNewline: k.includes("\n") || k.includes("\r"),
+    hasSpaceEnds: k !== k.trim(),
+    build: BUILD_TAG,
+  });
+});
+
+// ✅ Show where server is looking for .env (safe)
+app.get("/debug/env-path", (req, res) => {
+  const envPath = path.resolve(__dirname, ".env");
+  res.json({
+    cwd: process.cwd(),
+    __dirname,
+    envPath,
+    envExists: fs.existsSync(envPath),
+    shExists: Boolean(process.env.SH_API_KEY),
+    build: BUILD_TAG,
+  });
+});
+
 app.get("/debug/routes", (req, res) => {
   const routes = [];
   const stack = app._router?.stack || [];
@@ -199,9 +232,8 @@ app.get("/debug/openai-key-chars", (req, res) => {
 });
 
 // ===============================
-// ✅ NEW: AI ROUTES (PROTECTED)
+// ✅ AI ROUTES (PROTECTED)
 // ===============================
-// Mount all AI endpoints under /ai and protect them:
 app.use("/ai", requireShApiKey, rateLimit, aiRoutes);
 
 // ===============================

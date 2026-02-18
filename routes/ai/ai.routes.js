@@ -1,10 +1,10 @@
-import express from "express";
+const express = require("express");
 
-import quiz from "./quiz.js";
-import flashcards from "./flashcards.js";
-import codeExplainer from "./codeExplainer.js";
-import researchFinder from "./researchFinder.js";
-import interviewSimulator from "./interviewSimulator.js";
+const quiz = require("./quiz");
+const flashcards = require("./flashcards");
+const codeExplainer = require("./codeExplainer");
+const researchFinder = require("./researchFinder");
+const interviewSimulator = require("./interviewSimulator");
 
 const router = express.Router();
 
@@ -14,5 +14,6 @@ router.use("/code-explainer", codeExplainer);
 router.use("/research-finder", researchFinder);
 router.use("/interview-simulator", interviewSimulator);
 
-export default router;
+module.exports = router;
+
 
